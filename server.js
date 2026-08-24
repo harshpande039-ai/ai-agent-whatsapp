@@ -262,20 +262,27 @@ async function startWhatsAppBot() {
   });
 
   sock.ev.on('messages.upsert', async (m) => {
-    const msg = m.messages[0];
-    if (!msg || !msg.message) return;
+    if (!m || !m.messages || !m.messages.length) return;
 
-    const senderJid = msg.key.remoteJid;
-    // Process incoming message
-    const textMsg = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+    for (const msg of m.messages) {
+      if (!msg || !msg.message) continue;
 
-    if (!textMsg) return;
+      const senderJid = msg.key.remoteJid;
+      // Skip group messages if not needed
+      if (senderJid.endsWith('@g.us')) continue;
 
-    console.log(`📩 WhatsApp Message from ${senderJid}: "${textMsg}"`);
+      const textMsg = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
 
-    const reply = await handleWhatsAppAiAgent(senderJid, textMsg);
+      if (!textMsg) continue;
 
-    await sock.sendMessage(senderJid, { text: reply });
+      console.log(`[BOT ENGINE] Processing incoming message from ${senderJid}: "${textMsg}"`);
+
+      const reply = await handleWhatsAppAiAgent(senderJid, textMsg);
+
+      console.log(`[BOT ENGINE] Sending reply to ${senderJid}: "${reply}"`);
+
+      await sock.sendMessage(senderJid, { text: reply });
+    }
   });
 }
 
