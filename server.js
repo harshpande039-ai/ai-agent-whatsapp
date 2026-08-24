@@ -12,13 +12,13 @@ const { MessagingResponse } = twilio.twiml;
 const app = express();
 app.use(cors());
 
-// Parse Twilio incoming request bodies
+// Parse both urlencoded (Twilio form-data) and json
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
 
-// Google Calendar Setup
+// Google Calendar API Setup
 const GOOGLE_CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
 const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n') : null;
 const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID || 'harshpande039@gmail.com';
@@ -235,7 +235,13 @@ app.get('/', (req, res) => {
   res.send('WhatsApp AI Agent Webhook Server is active.');
 });
 
-// Twilio Webhook Receiver
+// GET /webhook for Twilio validation
+app.get('/webhook', (req, res) => {
+  res.type('text/xml');
+  res.send('<Response><Message>Webhook is active.</Message></Response>');
+});
+
+// POST /webhook Listener
 app.post('/webhook', async (req, res) => {
   try {
     const incomingMsg = req.body.Body || req.body.body || '';
@@ -248,14 +254,12 @@ app.post('/webhook', async (req, res) => {
     const twiml = new MessagingResponse();
     twiml.message(botReplyText);
 
-    res.setHeader('Content-Type', 'text/xml');
+    res.type('text/xml');
     return res.status(200).send(twiml.toString());
   } catch (err) {
-    console.error('Webhook processing error:', err);
-    const twiml = new MessagingResponse();
-    twiml.message("Hello! I am Ava from BrightSmile Dental Clinic. How can I assist you today?");
-    res.setHeader('Content-Type', 'text/xml');
-    return res.status(200).send(twiml.toString());
+    console.error('Webhook error:', err);
+    res.type('text/xml');
+    return res.status(200).send('<Response><Message>Hello! I am Ava from BrightSmile Dental Clinic. How can I assist you today?</Message></Response>');
   }
 });
 
