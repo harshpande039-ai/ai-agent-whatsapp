@@ -103,11 +103,11 @@ async function handleWhatsAppAiAgent(senderPhone, userMessage) {
   const session = userSessions[senderPhone];
   const input = userMessage.trim();
   const lower = input.toLowerCase();
-  const cleanPhone = senderPhone.replace('@s.whatsapp.net', '');
+  const cleanPhone = senderPhone.replace('@s.whatsapp.net', '').replace(/[^0-9]/g, '');
 
   if (lower === 'reset' || lower === 'restart') {
     userSessions[senderPhone] = { step: 'IDLE', bookingData: {} };
-    return `Hello! 👋 Welcome to BrightSmile Dental Clinic. I’m Ava, your AI assistant!\n\nHow can I help your number (${cleanPhone}) today?\n• Type *"Book appointment"* to schedule\n• Type *"Status"* to check your booking\n• Ask any question about services, location or timings!`;
+    return `Hello! 👋 Welcome to BrightSmile Dental Clinic. I’m Ava, your AI assistant!\n\nHow can I help your number (+${cleanPhone}) today?\n• Type *"Book appointment"* to schedule\n• Type *"Status"* to check your booking\n• Ask any question about services, location or timings!`;
   }
 
   // STATUS CHECK
@@ -121,7 +121,7 @@ async function handleWhatsAppAiAgent(senderPhone, userMessage) {
       const time = activeApp ? activeApp.time : '10:00 AM';
       const service = activeApp ? activeApp.service : 'Dental Consultation';
 
-      return `📋 *Appointment Status for ${cleanPhone}*\n\n` +
+      return `📋 *Appointment Status for +${cleanPhone}*\n\n` +
              `👤 *Patient*: ${patientName}\n` +
              `🦷 *Service*: ${service}\n` +
              `📅 *Date*: ${date}\n` +
@@ -129,7 +129,7 @@ async function handleWhatsAppAiAgent(senderPhone, userMessage) {
              `✅ *Status*: Confirmed on Google Calendar (harshpande039@gmail.com)\n\n` +
              `Reply *"Cancel"* if you need to cancel this appointment.`;
     } else {
-      return `ℹ️ No active appointments found for your WhatsApp number (${cleanPhone}).\n\nReply *"Book appointment"* to schedule a new visit!`;
+      return `ℹ️ No active appointments found for your WhatsApp number (+${cleanPhone}).\n\nReply *"Book appointment"* to schedule a new visit!`;
     }
   }
 
@@ -143,16 +143,16 @@ async function handleWhatsAppAiAgent(senderPhone, userMessage) {
       if (eventIdToDelete) await cancelGoogleCalendarEvent(eventIdToDelete);
       if (activeApp) activeApp.status = 'Cancelled';
 
-      return `❌ Your appointment for ${cleanPhone} has been CANCELLED and removed from Google Calendar (harshpande039@gmail.com).`;
+      return `❌ Your appointment for +${cleanPhone} has been CANCELLED and removed from Google Calendar (harshpande039@gmail.com).`;
     } else {
-      return `You don't have any active appointments under ${cleanPhone} to cancel.`;
+      return `You don't have any active appointments under +${cleanPhone} to cancel.`;
     }
   }
 
   // BOOKING FLOW
   if (session.step === 'IDLE' && (lower.includes('book') || lower.includes('appointment') || lower.includes('cleaning') || lower.includes('consultation'))) {
     session.step = 'BOOK_SERVICE';
-    return `I can help you book an appointment for ${cleanPhone}! What service do you need?\n1. Dental Consultation\n2. Teeth Cleaning\n3. Teeth Whitening\n4. Routine Checkup`;
+    return `I can help you book an appointment for +${cleanPhone}! What service do you need?\n1. Dental Consultation\n2. Teeth Cleaning\n3. Teeth Whitening\n4. Routine Checkup`;
   }
 
   if (session.step === 'BOOK_SERVICE') {
@@ -183,7 +183,7 @@ async function handleWhatsAppAiAgent(senderPhone, userMessage) {
 
     return `📋 *Confirm Booking Details*\n\n` +
            `👤 *Name*: ${name}\n` +
-           `📱 *Phone*: ${cleanPhone}\n` +
+           `📱 *Phone*: +${cleanPhone}\n` +
            `🦷 *Service*: ${session.bookingData.service}\n` +
            `📅 *Date*: ${session.bookingData.date}\n` +
            `⏰ *Time*: ${session.bookingData.time}\n\n` +
@@ -223,7 +223,7 @@ async function handleWhatsAppAiAgent(senderPhone, userMessage) {
   const faqMatch = INITIAL_FAQS.find(f => f.keywords.some(k => lower.includes(k)));
   if (faqMatch) return faqMatch.answer;
 
-  return `Hello! 👋 I’m Ava from BrightSmile Dental Clinic.\n\nHow can I help your number (${cleanPhone}) today?\n• Reply *"Book appointment"* to schedule\n• Reply *"Status"* to check your booking\n• Ask any questions about our clinic!`;
+  return `Hello! 👋 I’m Ava from BrightSmile Dental Clinic.\n\nHow can I help your number (+${cleanPhone}) today?\n• Reply *"Book appointment"* to schedule\n• Reply *"Status"* to check your booking\n• Ask any questions about our clinic!`;
 }
 
 // --------------------------------------------------------------------------
@@ -263,9 +263,10 @@ async function startWhatsAppBot() {
 
   sock.ev.on('messages.upsert', async (m) => {
     const msg = m.messages[0];
-    if (!msg.message || msg.key.fromMe) return;
+    if (!msg || !msg.message) return;
 
     const senderJid = msg.key.remoteJid;
+    // Process incoming message
     const textMsg = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
 
     if (!textMsg) return;
