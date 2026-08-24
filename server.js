@@ -14,7 +14,7 @@ app.use(express.urlencoded({ extended: true }));
 
 const PORT = process.env.PORT || 5000;
 
-// Green API Setup Credentials
+// Green API Instance Configuration
 const GREEN_ID_INSTANCE = process.env.GREEN_ID_INSTANCE || '710722718057';
 const GREEN_API_TOKEN = process.env.GREEN_API_TOKEN || '';
 const GREEN_API_HOST = process.env.GREEN_API_HOST || 'https://7107.api.greenapi.com';
@@ -41,20 +41,21 @@ const userSessions = {};
 
 // Send message back via Green API REST API
 async function sendGreenApiMessage(chatId, messageText) {
-  if (!GREEN_API_TOKEN) {
-    console.error('[Green API] GREEN_API_TOKEN is missing in Environment Variables!');
-    return;
+  const token = process.env.GREEN_API_TOKEN || GREEN_API_TOKEN;
+  if (!token) {
+    console.error('[Green API Warning] GREEN_API_TOKEN environment variable is not set on Render!');
   }
+  
   try {
-    const url = `${GREEN_API_HOST}/waInstance${GREEN_ID_INSTANCE}/sendMessage/${GREEN_API_TOKEN}`;
-    console.log(`[Green API] Sending reply to ${chatId} via URL: ${url}`);
+    const url = `${GREEN_API_HOST}/waInstance${GREEN_ID_INSTANCE}/sendMessage/${token}`;
+    console.log(`[Green API] Sending message to ${chatId}...`);
     const response = await axios.post(url, {
       chatId: chatId,
       message: messageText
     });
-    console.log(`[Green API] Reply sent successfully! Response:`, response.data);
+    console.log(`[Green API] Reply sent successfully to ${chatId}! Response ID:`, response.data?.idMessage);
   } catch (err) {
-    console.error('[Green API] Error sending reply:', err.response?.data || err.message);
+    console.error('[Green API Error] Could not send WhatsApp reply:', err.response?.data || err.message);
   }
 }
 
@@ -255,33 +256,32 @@ app.get('/', (req, res) => {
   res.send('🟢 Green API WhatsApp Webhook Server is active.');
 });
 
-// Green API Webhook Endpoint Receiver
+// Green API Webhook Receiver
 app.post('/webhook', async (req, res) => {
   try {
     const body = req.body;
-    console.log('[Green API Webhook payload]:', JSON.stringify(body, null, 2));
+    console.log('[Green API Incoming Webhook]:', JSON.stringify(body));
 
-    // Support all Green API incoming webhook event formats
-    const typeWebhook = body.typeWebhook;
+    // Handle all Green API incoming webhook types
     let senderChatId = '';
     let textMsg = '';
 
-    if (typeWebhook === 'incomingMessageReceived') {
+    if (body.typeWebhook === 'incomingMessageReceived') {
       senderChatId = body.senderData?.chatId;
       textMsg = body.messageData?.textMessageData?.textMessage || 
                 body.messageData?.extendedTextMessageData?.text || 
                 body.messageData?.extendedTextMessageData?.description || '';
-    } else if (body.chatId && (body.textMessage || body.message)) {
+    } else if (body.chatId) {
       senderChatId = body.chatId;
-      textMsg = body.textMessage || body.message;
+      textMsg = body.textMessage || body.message || body.text || '';
     }
 
     if (senderChatId && textMsg) {
-      console.log(`[Green API] Processing message from ${senderChatId}: "${textMsg}"`);
+      console.log(`[Green API Processing] Incoming message from ${senderChatId}: "${textMsg}"`);
       const replyText = await handleWhatsAppAiAgent(senderChatId, textMsg);
       await sendGreenApiMessage(senderChatId, replyText);
     } else {
-      console.log('[Green API] Webhook event received but ignored (no incoming message text).');
+      console.log('[Green API Info] Received webhook notification (non-text event).');
     }
 
     res.status(200).send('OK');
