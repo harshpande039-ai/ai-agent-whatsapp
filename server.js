@@ -1,9 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import axios from 'axios';
 import { google } from 'googleapis';
-import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
-import qrcode from 'qrcode-terminal';
 import { CLINIC_INFO, INITIAL_FAQS } from './src/data/clinicData.js';
 
 dotenv.config();
@@ -14,7 +13,12 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
 
-// Google Calendar Setup
+// Green API Setup Credentials
+const GREEN_ID_INSTANCE = process.env.GREEN_ID_INSTANCE || '710722718057';
+const GREEN_API_TOKEN = process.env.GREEN_API_TOKEN || '';
+const GREEN_API_HOST = process.env.GREEN_API_HOST || 'https://7107.api.greenapi.com';
+
+// Google Calendar API Setup
 const GOOGLE_CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
 const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n') : null;
 const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID || 'harshpande039@gmail.com';
@@ -30,9 +34,27 @@ if (GOOGLE_CLIENT_EMAIL && GOOGLE_PRIVATE_KEY) {
   calendar = google.calendar({ version: 'v3', auth });
 }
 
-// In-Memory Database indexed by WhatsApp Sender Phone Number
+// In-Memory Database
 const clientDatabase = {};
 const userSessions = {};
+
+// Send message back via Green API REST API
+async function sendGreenApiMessage(chatId, messageText) {
+  if (!GREEN_API_TOKEN) {
+    console.log(`[Green API] Token missing. Message to ${chatId}: "${messageText}"`);
+    return;
+  }
+  try {
+    const url = `${GREEN_API_HOST}/waInstance${GREEN_ID_INSTANCE}/sendMessage/${GREEN_API_TOKEN}`;
+    await axios.post(url, {
+      chatId: chatId,
+      message: messageText
+    });
+    console.log(`[Green API] Reply sent successfully to ${chatId}`);
+  } catch (err) {
+    console.error('[Green API] Error sending reply:', err.response?.data || err.message);
+  }
+}
 
 // Calendar Helpers
 async function findGoogleCalendarEventByPhone(phone) {
@@ -103,7 +125,7 @@ async function handleWhatsAppAiAgent(senderPhone, userMessage) {
   const session = userSessions[senderPhone];
   const input = userMessage.trim();
   const lower = input.toLowerCase();
-  const cleanPhone = senderPhone.replace('@s.whatsapp.net', '').replace(/[^0-9]/g, '');
+  const cleanPhone = senderPhone.replace('@c.us', '').replace(/[^0-9]/g, '');
 
   if (lower === 'reset' || lower === 'restart') {
     userSessions[senderPhone] = { step: 'IDLE', bookingData: {} };
@@ -226,84 +248,36 @@ async function handleWhatsAppAiAgent(senderPhone, userMessage) {
   return `Hello! 👋 I’m Ava from BrightSmile Dental Clinic.\n\nHow can I help your number (+${cleanPhone}) today?\n• Reply *"Book appointment"* to schedule\n• Reply *"Status"* to check your booking\n• Ask any questions about our clinic!`;
 }
 
-// --------------------------------------------------------------------------
-// DIRECT WHATSAPP SOCKET CONNECTION (Baileys)
-// --------------------------------------------------------------------------
-let latestQrCode = '';
-
-async function startWhatsAppBot() {
-  const { state, saveCreds } = await useMultiFileAuthState('baileys_auth_info');
-
-  const sock = makeWASocket({
-    auth: state,
-    printQRInTerminal: false
-  });
-
-  sock.ev.on('creds.update', saveCreds);
-
-  sock.ev.on('connection.update', (update) => {
-    const { connection, lastDisconnect, qr } = update;
-    
-    if (qr) {
-      latestQrCode = qr;
-      console.log('\n================ WHATSAPP QR CODE ================');
-      qrcode.generate(qr, { small: true });
-      console.log('==================================================\n');
-    }
-
-    if (connection === 'close') {
-      const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-      console.log('WhatsApp connection closed. Reconnecting...', shouldReconnect);
-      if (shouldReconnect) startWhatsAppBot();
-    } else if (connection === 'open') {
-      latestQrCode = '';
-      console.log('🟢 WHATSAPP BOT CONNECTED LIVE SUCCESSFULLY!');
-    }
-  });
-
-  sock.ev.on('messages.upsert', async (m) => {
-    if (!m || !m.messages || !m.messages.length) return;
-
-    for (const msg of m.messages) {
-      if (!msg || !msg.message) continue;
-
-      const senderJid = msg.key.remoteJid;
-      // Skip group messages if not needed
-      if (senderJid.endsWith('@g.us')) continue;
-
-      const textMsg = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
-
-      if (!textMsg) continue;
-
-      console.log(`[BOT ENGINE] Processing incoming message from ${senderJid}: "${textMsg}"`);
-
-      const reply = await handleWhatsAppAiAgent(senderJid, textMsg);
-
-      console.log(`[BOT ENGINE] Sending reply to ${senderJid}: "${reply}"`);
-
-      await sock.sendMessage(senderJid, { text: reply });
-    }
-  });
-}
-
-// Start WhatsApp Socket
-startWhatsAppBot();
-
-// Web endpoints to view QR code or status
+// Web endpoints
 app.get('/', (req, res) => {
-  if (latestQrCode) {
-    res.send(`
-      <html>
-        <head><title>WhatsApp QR Code Login</title></head>
-        <body style="font-family:sans-serif; text-align:center; padding:50px;">
-          <h2>Scan QR Code with WhatsApp (Linked Devices)</h2>
-          <img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(latestQrCode)}" />
-          <p>Open WhatsApp on your phone -> Settings / Menu -> Linked Devices -> Link a Device.</p>
-        </body>
-      </html>
-    `);
-  } else {
-    res.send('🟢 WhatsApp Bot is Connected Live and Running!');
+  res.send('🟢 Green API WhatsApp Webhook Server is active.');
+});
+
+// Green API Webhook Endpoint Receiver
+app.post('/webhook', async (req, res) => {
+  try {
+    const body = req.body;
+    console.log('[Green API Webhook]:', JSON.stringify(body, null, 2));
+
+    // Green API incoming message payload structure
+    if (body && body.typeWebhook === 'incomingMessageReceived') {
+      const messageData = body.messageData;
+      const senderData = body.senderData;
+
+      const chatId = senderData?.chatId;
+      const textMsg = messageData?.textMessageData?.textMessage || messageData?.extendedTextMessageData?.text || '';
+
+      if (chatId && textMsg) {
+        console.log(`[Green API] Incoming message from ${chatId}: "${textMsg}"`);
+        const replyText = await handleWhatsAppAiAgent(chatId, textMsg);
+        await sendGreenApiMessage(chatId, replyText);
+      }
+    }
+
+    res.status(200).send('OK');
+  } catch (err) {
+    console.error('Webhook error:', err);
+    res.status(200).send('OK');
   }
 });
 
