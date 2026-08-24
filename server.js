@@ -1,24 +1,20 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import twilio from 'twilio';
 import { google } from 'googleapis';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
+import qrcode from 'qrcode-terminal';
 import { CLINIC_INFO, INITIAL_FAQS } from './src/data/clinicData.js';
 
 dotenv.config();
 
-const { MessagingResponse } = twilio.twiml;
-
 const app = express();
 app.use(cors());
-
-// Parse both urlencoded (Twilio form-data) and json
-app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
 
-// Google Calendar API Setup
+// Google Calendar Setup
 const GOOGLE_CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
 const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n') : null;
 const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID || 'harshpande039@gmail.com';
@@ -38,7 +34,7 @@ if (GOOGLE_CLIENT_EMAIL && GOOGLE_PRIVATE_KEY) {
 const clientDatabase = {};
 const userSessions = {};
 
-// Helper functions for Calendar
+// Calendar Helpers
 async function findGoogleCalendarEventByPhone(phone) {
   if (!calendar) return null;
   try {
@@ -94,7 +90,7 @@ async function cancelGoogleCalendarEvent(eventId) {
   }
 }
 
-// AI Agent Processor
+// AI Agent Core Engine
 async function handleWhatsAppAiAgent(senderPhone, userMessage) {
   if (!clientDatabase[senderPhone]) {
     clientDatabase[senderPhone] = { phone: senderPhone, name: '', appointments: [] };
@@ -107,9 +103,9 @@ async function handleWhatsAppAiAgent(senderPhone, userMessage) {
   const session = userSessions[senderPhone];
   const input = userMessage.trim();
   const lower = input.toLowerCase();
-  const cleanPhone = senderPhone.replace('whatsapp:', '');
+  const cleanPhone = senderPhone.replace('@s.whatsapp.net', '');
 
-  if (lower === 'reset' || lower === 'restart' || lower.includes('join')) {
+  if (lower === 'reset' || lower === 'restart') {
     userSessions[senderPhone] = { step: 'IDLE', bookingData: {} };
     return `Hello! 👋 Welcome to BrightSmile Dental Clinic. I’m Ava, your AI assistant!\n\nHow can I help your number (${cleanPhone}) today?\n• Type *"Book appointment"* to schedule\n• Type *"Status"* to check your booking\n• Ask any question about services, location or timings!`;
   }
@@ -230,36 +226,76 @@ async function handleWhatsAppAiAgent(senderPhone, userMessage) {
   return `Hello! 👋 I’m Ava from BrightSmile Dental Clinic.\n\nHow can I help your number (${cleanPhone}) today?\n• Reply *"Book appointment"* to schedule\n• Reply *"Status"* to check your booking\n• Ask any questions about our clinic!`;
 }
 
-// Health Check / Root route
+// --------------------------------------------------------------------------
+// DIRECT WHATSAPP SOCKET CONNECTION (Baileys)
+// --------------------------------------------------------------------------
+let latestQrCode = '';
+
+async function startWhatsAppBot() {
+  const { state, saveCreds } = await useMultiFileAuthState('baileys_auth_info');
+
+  const sock = makeWASocket({
+    auth: state,
+    printQRInTerminal: false
+  });
+
+  sock.ev.on('creds.update', saveCreds);
+
+  sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect, qr } = update;
+    
+    if (qr) {
+      latestQrCode = qr;
+      console.log('\n================ WHATSAPP QR CODE ================');
+      qrcode.generate(qr, { small: true });
+      console.log('==================================================\n');
+    }
+
+    if (connection === 'close') {
+      const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+      console.log('WhatsApp connection closed. Reconnecting...', shouldReconnect);
+      if (shouldReconnect) startWhatsAppBot();
+    } else if (connection === 'open') {
+      latestQrCode = '';
+      console.log('🟢 WHATSAPP BOT CONNECTED LIVE SUCCESSFULLY!');
+    }
+  });
+
+  sock.ev.on('messages.upsert', async (m) => {
+    const msg = m.messages[0];
+    if (!msg.message || msg.key.fromMe) return;
+
+    const senderJid = msg.key.remoteJid;
+    const textMsg = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+
+    if (!textMsg) return;
+
+    console.log(`📩 WhatsApp Message from ${senderJid}: "${textMsg}"`);
+
+    const reply = await handleWhatsAppAiAgent(senderJid, textMsg);
+
+    await sock.sendMessage(senderJid, { text: reply });
+  });
+}
+
+// Start WhatsApp Socket
+startWhatsAppBot();
+
+// Web endpoints to view QR code or status
 app.get('/', (req, res) => {
-  res.send('WhatsApp AI Agent Webhook Server is active.');
-});
-
-// GET /webhook for Twilio validation
-app.get('/webhook', (req, res) => {
-  res.type('text/xml');
-  res.send('<Response><Message>Webhook is active.</Message></Response>');
-});
-
-// POST /webhook Listener
-app.post('/webhook', async (req, res) => {
-  try {
-    const incomingMsg = req.body.Body || req.body.body || '';
-    const senderNumber = req.body.From || req.body.from || '';
-
-    console.log(`[Twilio Webhook] Received from ${senderNumber}: "${incomingMsg}"`);
-
-    const botReplyText = await handleWhatsAppAiAgent(senderNumber, incomingMsg);
-
-    const twiml = new MessagingResponse();
-    twiml.message(botReplyText);
-
-    res.type('text/xml');
-    return res.status(200).send(twiml.toString());
-  } catch (err) {
-    console.error('Webhook error:', err);
-    res.type('text/xml');
-    return res.status(200).send('<Response><Message>Hello! I am Ava from BrightSmile Dental Clinic. How can I assist you today?</Message></Response>');
+  if (latestQrCode) {
+    res.send(`
+      <html>
+        <head><title>WhatsApp QR Code Login</title></head>
+        <body style="font-family:sans-serif; text-align:center; padding:50px;">
+          <h2>Scan QR Code with WhatsApp (Linked Devices)</h2>
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(latestQrCode)}" />
+          <p>Open WhatsApp on your phone -> Settings / Menu -> Linked Devices -> Link a Device.</p>
+        </body>
+      </html>
+    `);
+  } else {
+    res.send('🟢 WhatsApp Bot is Connected Live and Running!');
   }
 });
 
