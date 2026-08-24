@@ -14,9 +14,9 @@ app.use(express.urlencoded({ extended: true }));
 
 const PORT = process.env.PORT || 5000;
 
-// Green API Instance Configuration
+// Green API Instance Credentials
 const GREEN_ID_INSTANCE = process.env.GREEN_ID_INSTANCE || '710722718057';
-const GREEN_API_TOKEN = process.env.GREEN_API_TOKEN || '';
+const GREEN_API_TOKEN = process.env.GREEN_API_TOKEN || '5731ed53f86e41b2aa2ce54fc8eb5fba7c7f3b8dddfa4e0cb9';
 const GREEN_API_HOST = process.env.GREEN_API_HOST || 'https://7107.api.greenapi.com';
 
 // Google Calendar API Setup
@@ -42,10 +42,6 @@ const userSessions = {};
 // Send message back via Green API REST API
 async function sendGreenApiMessage(chatId, messageText) {
   const token = process.env.GREEN_API_TOKEN || GREEN_API_TOKEN;
-  if (!token) {
-    console.error('[Green API Warning] GREEN_API_TOKEN environment variable is not set on Render!');
-  }
-  
   try {
     const url = `${GREEN_API_HOST}/waInstance${GREEN_ID_INSTANCE}/sendMessage/${token}`;
     console.log(`[Green API] Sending message to ${chatId}...`);
