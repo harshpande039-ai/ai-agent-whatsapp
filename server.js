@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import twilio from 'twilio';
+import { google } from 'googleapis';
 
 dotenv.config();
 
@@ -16,9 +17,56 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
 
+// Google Calendar Integration Setup (Service Account or OAuth)
+const GOOGLE_CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
+const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n') : null;
+const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID || 'harshpande039@gmail.com';
+
+let calendar;
+if (GOOGLE_CLIENT_EMAIL && GOOGLE_PRIVATE_KEY) {
+  const auth = new google.auth.JWT(
+    GOOGLE_CLIENT_EMAIL,
+    null,
+    GOOGLE_PRIVATE_KEY,
+    ['https://www.googleapis.com/auth/calendar.events']
+  );
+  calendar = google.calendar({ version: 'v3', auth });
+}
+
+// Function to add appointment to Google Calendar
+async function addAppointmentToGoogleCalendar(patientName, serviceType, dateStr, timeStr) {
+  if (!calendar) {
+    console.log('Google Calendar credentials not configured in environment variables.');
+    return null;
+  }
+
+  try {
+    const startTime = new Date(`${dateStr} ${timeStr}`);
+    const endTime = new Date(startTime.getTime() + 45 * 60000); // 45 min duration
+
+    const event = {
+      summary: `🦷 Dental Appointment: ${patientName} (${serviceType})`,
+      description: `Appointment booked via WhatsApp AI Assistant (Ava) for ${patientName}. Service: ${serviceType}.`,
+      start: { dateTime: startTime.toISOString() },
+      end: { dateTime: endTime.toISOString() },
+      attendees: [{ email: 'harshpande039@gmail.com' }]
+    };
+
+    const res = await calendar.events.insert({
+      calendarId: CALENDAR_ID,
+      resource: event
+    });
+    console.log('Google Calendar event created successfully:', res.data.htmlLink);
+    return res.data.htmlLink;
+  } catch (err) {
+    console.error('Error creating Google Calendar event:', err.message);
+    return null;
+  }
+}
+
 // Health Check / Root route
 app.get('/', (req, res) => {
-  res.send('WhatsApp Webhook Backend Server is running.');
+  res.send('WhatsApp Webhook Backend Server is running with Google Calendar integration.');
 });
 
 // Webhook Verification endpoint
