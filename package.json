@@ -15,7 +15,8 @@
     "express": "^4.21.2",
     "lucide-react": "^1.33.0",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "twilio": "^5.4.3"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
