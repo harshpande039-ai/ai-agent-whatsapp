@@ -14,6 +14,8 @@ export const initialConversationState = {
     timeStr: '',
     isoDateTimeIST: '',
     patientName: '',
+    email: '',
+    healthIssue: '',
     patientPhone: '+91 98765 43210'
   },
   draftTicket: {
@@ -23,6 +25,147 @@ export const initialConversationState = {
   },
   availableAlternatives: []
 };
+
+export const STANDARD_SLOTS = [
+  '09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM',
+  '02:00 PM', '02:30 PM', '03:00 PM', '03:30 PM', '04:00 PM', '04:30 PM',
+  '05:00 PM', '05:30 PM', '06:00 PM', '06:30 PM'
+];
+
+export function isHealthAdviceQuery(lowerInput) {
+  const healthKeywords = [
+    'medicine', 'tablet', 'tablets', 'pill', 'pills', 'antibiotic', 'painkiller',
+    'diagnose', 'symptom', 'cure', 'home remedy', 'treatment advice', 'what to take',
+    'why does my', 'infection treatment', 'prescribe', 'prescription', 'how to treat',
+    'medical advice', 'health advice', 'remedy', 'dosage'
+  ];
+  return healthKeywords.some(kw => lowerInput.includes(kw));
+}
+
+export function parseAndValidateDate(input) {
+  if (!input) return null;
+  const clean = input.trim().toLowerCase();
+
+  if (['yes', 'no', 'ok', 'sure', 'hi', 'hello', 'thanks', 'thank you', 'yeah', 'yep', 'cancel', 'reset', 'restart'].includes(clean)) {
+    return null;
+  }
+
+  const now = new Date();
+
+  if (clean.includes('today')) {
+    return now.toISOString().split('T')[0];
+  }
+  if (clean.includes('tomorrow')) {
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    return tomorrow.toISOString().split('T')[0];
+  }
+
+  const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const dayIndex = daysOfWeek.findIndex(d => clean.includes(d));
+  if (dayIndex !== -1) {
+    const currentDay = now.getDay();
+    let diff = (dayIndex - currentDay + 7) % 7;
+    if (diff === 0) diff = 7;
+    const targetDate = new Date(now.getTime() + diff * 24 * 60 * 60 * 1000);
+    return targetDate.toISOString().split('T')[0];
+  }
+
+  const ymdMatch = clean.match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+  if (ymdMatch) {
+    const y = parseInt(ymdMatch[1], 10);
+    const m = parseInt(ymdMatch[2], 10) - 1;
+    const d = parseInt(ymdMatch[3], 10);
+    const dt = new Date(y, m, d);
+    if (!isNaN(dt.getTime())) return dt.toISOString().split('T')[0];
+  }
+
+  const dmyMatch = clean.match(/(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?/);
+  if (dmyMatch) {
+    const d = parseInt(dmyMatch[1], 10);
+    const m = parseInt(dmyMatch[2], 10) - 1;
+    const y = dmyMatch[3] ? (dmyMatch[3].length === 2 ? 2000 + parseInt(dmyMatch[3], 10) : parseInt(dmyMatch[3], 10)) : now.getFullYear();
+    const dt = new Date(y, m, d);
+    if (!isNaN(dt.getTime())) return dt.toISOString().split('T')[0];
+  }
+
+  const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  for (let i = 0; i < monthNames.length; i++) {
+    if (clean.includes(monthNames[i])) {
+      const dayMatch = clean.match(/(\d{1,2})/);
+      if (dayMatch) {
+        const d = parseInt(dayMatch[1], 10);
+        const dt = new Date(now.getFullYear(), i, d);
+        if (!isNaN(dt.getTime())) {
+          if (dt < new Date(now.getFullYear(), now.getMonth(), now.getDate())) {
+            dt.setFullYear(now.getFullYear() + 1);
+          }
+          return dt.toISOString().split('T')[0];
+        }
+      }
+    }
+  }
+
+  const parsed = Date.parse(clean);
+  if (!isNaN(parsed)) {
+    const dt = new Date(parsed);
+    if (dt.getFullYear() < now.getFullYear()) {
+      dt.setFullYear(now.getFullYear());
+    }
+    return dt.toISOString().split('T')[0];
+  }
+
+  return null;
+}
+
+export function normalizeTimeSlot(timeInput) {
+  if (!timeInput) return null;
+  const clean = timeInput.trim().toLowerCase();
+  
+  const match = clean.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
+  if (!match) return null;
+
+  let hour = parseInt(match[1], 10);
+  const minutes = match[2] ? parseInt(match[2], 10) : 0;
+  let period = match[3];
+
+  if (!period) {
+    if (hour >= 1 && hour <= 7) period = 'pm';
+    else if (hour >= 9 && hour <= 11) period = 'am';
+    else if (hour === 12) period = 'pm';
+  }
+
+  if (period === 'pm' && hour < 12) hour += 12;
+  if (period === 'am' && hour === 12) hour = 0;
+
+  for (const slot of STANDARD_SLOTS) {
+    const slotMatch = slot.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/);
+    let sHour = parseInt(slotMatch[1], 10);
+    const sMin = parseInt(slotMatch[2], 10);
+    const sPeriod = slotMatch[3];
+
+    if (sPeriod === 'PM' && sHour < 12) sHour += 12;
+    if (sPeriod === 'AM' && sHour === 12) sHour = 0;
+
+    if (sHour === hour && Math.abs(sMin - minutes) < 15) {
+      return slot;
+    }
+  }
+
+  return null;
+}
+
+export function getFreeSlotsForDate(dateStr) {
+  const appointments = getAppointments();
+  const bookedOnDate = appointments.filter(a => a.date === dateStr && a.status !== 'Cancelled');
+  const bookedSet = new Set();
+  
+  bookedOnDate.forEach(a => {
+    const norm = normalizeTimeSlot(a.timeSlot);
+    if (norm) bookedSet.add(norm);
+  });
+
+  return STANDARD_SLOTS.filter(slot => !bookedSet.has(slot));
+}
 
 export function check_availability(isoDateTimeIST) {
   const reqDate = isoDateTimeIST.split('T')[0];
@@ -38,25 +181,11 @@ export function check_availability(isoDateTimeIST) {
     return appHour === reqTimeHour;
   });
 
-  const allPossibleSlots = [
-    { timeStr: '09:00 AM', hour: 9, iso: `${reqDate}T09:00:00+05:30` },
-    { timeStr: '10:00 AM', hour: 10, iso: `${reqDate}T10:00:00+05:30` },
-    { timeStr: '11:00 AM', hour: 11, iso: `${reqDate}T11:00:00+05:30` },
-    { timeStr: '02:00 PM', hour: 14, iso: `${reqDate}T14:00:00+05:30` },
-    { timeStr: '04:00 PM', hour: 16, iso: `${reqDate}T16:00:00+05:30` },
-    { timeStr: '05:30 PM', hour: 17, iso: `${reqDate}T17:30:00+05:30` },
-    { timeStr: '06:30 PM', hour: 18, iso: `${reqDate}T18:30:00+05:30` }
-  ];
-
-  const availableSlots = allPossibleSlots.filter(s => {
-    const isSlotBooked = bookedOnDate.some(a => parseHourFromSlot(a.timeSlot) === s.hour);
-    const inWindow = Math.abs(s.hour - reqTimeHour) <= 8;
-    return !isSlotBooked && inWindow;
-  });
+  const free = getFreeSlotsForDate(reqDate);
 
   return {
     isAvailable: !isBooked,
-    suggestedAlternatives: availableSlots.slice(0, 2)
+    suggestedAlternatives: free
   };
 }
 
@@ -98,6 +227,16 @@ export function processUserMessage(userMessage, state = initialConversationState
       text: "Hey! I’m Ava, the AI assistant from BrightSmile Dental Clinic 😊 How can I assist you today?",
       toolCalls: [],
       state: { ...initialConversationState, hasIntroduced: true }
+    };
+  }
+
+  // Health & Medical Advice Guardrail
+  if (isHealthAdviceQuery(lower) && state.step === 'IDLE') {
+    nextState.hasIntroduced = true;
+    return {
+      text: "⚠️ Medical Disclaimer: I am an automated clinic assistant and cannot provide medical or health advice, diagnoses, or prescriptions. For any dental symptoms, pain, or medical concerns, please book a consultation with our qualified dentist for a professional evaluation.",
+      toolCalls: [],
+      state: nextState
     };
   }
 
@@ -192,42 +331,80 @@ export function processUserMessage(userMessage, state = initialConversationState
   }
 
   if (state.step === 'BOOK_DATE') {
-    nextState.draftBooking.dateStr = input;
+    const validDate = parseAndValidateDate(input);
+    if (!validDate) {
+      return {
+        text: "Please provide a valid date for your visit (e.g. 2026-08-26, tomorrow, or Aug 26).",
+        toolCalls: [],
+        state: state
+      };
+    }
+
+    nextState.draftBooking.dateStr = validDate;
     nextState.step = 'BOOK_TIME';
+
+    const freeSlots = getFreeSlotsForDate(validDate);
+    const slotsFormatted = freeSlots.length > 0
+      ? freeSlots.map(s => `• ${s}`).join('\n')
+      : 'No free slots remaining on this date.';
+
     return {
-      text: "What time would you prefer for your appointment?",
+      text: `Great! What time would you prefer on ${validDate}?\n\n📅 Available free time slots:\n${slotsFormatted}\n\nPlease enter your preferred time slot (e.g. 10:00 AM or 04:00 PM).`,
       toolCalls: [],
       state: nextState
     };
   }
 
   if (state.step === 'BOOK_TIME') {
-    nextState.draftBooking.timeStr = input;
-    const isoIST = parseToIsoIST(nextState.draftBooking.dateStr, nextState.draftBooking.timeStr);
-    nextState.draftBooking.isoDateTimeIST = isoIST;
+    const matchedSlot = normalizeTimeSlot(input);
+    const freeSlots = getFreeSlotsForDate(nextState.draftBooking.dateStr);
 
-    const availResult = check_availability(isoIST);
+    if (!matchedSlot || !freeSlots.includes(matchedSlot)) {
+      const slotsList = freeSlots.length > 0
+        ? freeSlots.map(s => `• ${s}`).join('\n')
+        : 'Unfortunately, there are no free slots remaining on this date. Please try a different date.';
 
-    if (!availResult.isAvailable) {
-      const alts = availResult.suggestedAlternatives.map(a => a.timeStr).join(' or ');
-      nextState.availableAlternatives = availResult.suggestedAlternatives;
       return {
-        text: `That time slot is not available. Would either ${alts} work for you, or would you prefer a different date?`,
-        toolCalls: [{ name: 'check_availability', args: { requestedIsoIST: isoIST } }],
-        state: nextState
-      };
-    } else {
-      nextState.step = 'BOOK_NAME';
-      return {
-        text: "That slot is available! May I please have your full name?",
-        toolCalls: [{ name: 'check_availability', args: { requestedIsoIST: isoIST } }],
+        text: `Sorry, "${input}" is not available or does not match our clinic schedule.\n\n📅 Here are the time slots in which we are free on ${nextState.draftBooking.dateStr}:\n${slotsList}\n\nPlease choose one of the available time slots listed above!`,
+        toolCalls: [],
         state: nextState
       };
     }
+
+    nextState.draftBooking.timeStr = matchedSlot;
+    const isoIST = parseToIsoIST(nextState.draftBooking.dateStr, matchedSlot);
+    nextState.draftBooking.isoDateTimeIST = isoIST;
+
+    nextState.step = 'BOOK_NAME';
+    return {
+      text: `That slot (${matchedSlot}) is available! May I please have your full name?`,
+      toolCalls: [],
+      state: nextState
+    };
   }
 
   if (state.step === 'BOOK_NAME') {
     nextState.draftBooking.patientName = input;
+    nextState.step = 'BOOK_EMAIL';
+    return {
+      text: `Thank you, ${input}! May I please have your email address?`,
+      toolCalls: [],
+      state: nextState
+    };
+  }
+
+  if (state.step === 'BOOK_EMAIL') {
+    nextState.draftBooking.email = input;
+    nextState.step = 'BOOK_ISSUE';
+    return {
+      text: "Got it! Please briefly describe any health issue or reason for your visit (or type 'none'):",
+      toolCalls: [],
+      state: nextState
+    };
+  }
+
+  if (state.step === 'BOOK_ISSUE') {
+    nextState.draftBooking.healthIssue = input;
     nextState.step = 'BOOK_CONFIRM';
 
     const readableDateStr = nextState.draftBooking.dateStr;
@@ -235,7 +412,7 @@ export function processUserMessage(userMessage, state = initialConversationState
     const appType = nextState.draftBooking.type || 'Dental Consultation';
 
     return {
-      text: `Great! To confirm, you'd like to book a ${appType} on ${readableDateStr} at ${readableTimeStr} at BrightSmile Dental Clinic for ${input}.\n\nShould I go ahead and confirm this booking for you?`,
+      text: `📋 Confirm Booking Details:\n\nname: ${nextState.draftBooking.patientName}\nemail: ${nextState.draftBooking.email}\nphone number: ${nextState.draftBooking.patientPhone}\nhealth issue: ${nextState.draftBooking.healthIssue}\nservice: ${appType}\ndate: ${readableDateStr}\ntime: ${readableTimeStr}\n\nShould I confirm and save this appointment to Google Calendar (harshpande039@gmail.com)?`,
       toolCalls: [],
       state: nextState
     };
@@ -252,7 +429,7 @@ export function processUserMessage(userMessage, state = initialConversationState
 
       nextState.step = 'IDLE';
       return {
-        text: `Your appointment for ${nextState.draftBooking.patientName} (${nextState.draftBooking.type}) on ${nextState.draftBooking.dateStr} at ${nextState.draftBooking.timeStr} is confirmed! We look forward to seeing you at BrightSmile Dental Clinic.`,
+        text: `🎉 Appointment Confirmed!\n\nYour appointment for ${nextState.draftBooking.patientName} (${nextState.draftBooking.type}) on ${nextState.draftBooking.dateStr} at ${nextState.draftBooking.timeStr} has been saved to Google Calendar (harshpande039@gmail.com)!\n\nSaved Details:\n• name: ${nextState.draftBooking.patientName}\n• email: ${nextState.draftBooking.email}\n• phone number: ${nextState.draftBooking.patientPhone}\n• health issue: ${nextState.draftBooking.healthIssue}`,
         toolCalls: [{ name: 'book_appointment', args: { name: nextState.draftBooking.patientName, isoIST: nextState.draftBooking.isoDateTimeIST } }],
         state: initialConversationState
       };

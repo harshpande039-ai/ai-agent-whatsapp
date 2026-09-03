@@ -157,13 +157,6 @@ export function WhatsAppChat({ onAppointmentUpdated }) {
               <div className={`wa-bubble ${msg.sender === 'user' ? 'user-bubble' : 'bot-bubble'}`}>
                 {msg.sender === 'bot' && <div className="bot-name-tag">Ava • BrightSmile Assistant</div>}
 
-                {/* Simulated Tool Execution Tag */}
-                {msg.toolCalls && msg.toolCalls.length > 0 && (
-                  <div className="tool-execution-badge font-mono">
-                    <Terminal className="icon-xs" /> tool_call: {msg.toolCalls[0].name}()
-                  </div>
-                )}
-
                 {/* Plain Text Message Content */}
                 <div className="msg-text-content" style={{ whiteSpace: 'pre-line' }}>
                   {msg.text}
